@@ -1,0 +1,26 @@
+# Keil uVision project files
+*.bak
+*.ddk
+*.edk
+*.lst
+*.lnp
+*.mpf
+*.mpl
+*.obj
+*.plg
+*.sct
+*.tra
+*.uvguix.*
+*.uvoptx
+*.uvprojx.bak
+
+# Folders
+Listings/
+Objects/
+RTE/
+Debug/
+Release/
+
+# Misc
+*.uvgui.*
+JLinkLog.txt
