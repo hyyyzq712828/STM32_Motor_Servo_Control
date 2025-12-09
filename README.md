@@ -1,77 +1,107 @@
-# STM32-based High-Performance DC Motor Servo System
+# 基于STM32的高性能直流电机伺服系统
 
+<!-- 在这里放一张展示你项目最终效果的GIF动图！ -->
+![项目演示](docs/images/demo.gif)
 
+---
 
-## 1. Project Overview
+## 1. 项目概述
 
-This project implements a high-performance closed-loop servo control system for a DC brushed motor based on the STM32F103C8T6 microcontroller. It features a cascaded PID control structure (Position Loop + Velocity Loop), modular software architecture, and real-time data visualization via a PC-based GUI (VOFA+).
+本项目基于 `STM32F103C8T6` 微控制器，实现了一套针对有刷直流电机的高性能闭环伺服控制系统。
 
-The goal is to achieve fast, stable, and precise control of the motor's position and velocity, laying the groundwork for advanced robotics applications.
+系统核心采用了**串级PID控制架构**（位置环 + 速度环），软件上构建了**分层化、模块化**的设计，并通过 `VOFA+` 上位机实现了控制过程的**实时数据可视化**。
 
-## 2. Hardware Components
+项目的最终目标是实现对电机**位置**和**速度**的**快速、稳定、精确**的控制，为后续开发更复杂的机器人应用（如移动底盘、机械臂）打下坚实的基础。
 
-| Component | Model | Description |
+## 2. 硬件方案
+
+| 组件名称 | 型号/规格 | 核心作用 |
 | :--- | :--- | :--- |
-| Microcontroller | STM32F103C8T6 | ARM Cortex-M3 Core |
-| Motor Driver | TB6612FNG | Dual-channel MOSFET H-bridge |
-| DC Motor | MD520Z30_12V | Brushed DC motor with encoder |
-| Encoder | 11-line Hall Encoder (1320 pulses/rev after reduction & 4x multiplication) |
+| **微控制器 (MCU)** | `STM32F103C8T6` | 主控制器，负责所有运算和控制逻辑 |
+| **电机驱动** | `TB6612FNG` | H桥驱动，为电机提供动力 |
+| **直流减速电机** | `MD520Z30_12V` | 执行器，带增量式霍尔编码器 |
+| **编码器** | 11线霍尔编码器 | 经减速和4倍频后，**1320脉冲/圈** |
 
-**Wiring Diagram:**
-(Here you can insert a simple wiring diagram image or text description)
+#### 接线说明
 
-## 3. Software Architecture
+*   **电源:** 使用12V直流电源为电机供电 (`VM`)。
+*   **STM32 & TB6612:**
+    *   `STM32 3.3V` -> `TB6612 VCC` & `STBY` (逻辑电源与使能)
+    *   `STM32 GND` -> `TB6612 GND` (必须共地)
+    *   `STM32 PA0 (TIM2_CH1)` -> `TB6612 PWMA` (PWM调速)
+    *   `STM32 PB0`, `PB1` -> `TB6612 AIN1`, `AIN2` (方向控制)
+    *   `STM32 PA6, PA7 (TIM3)` -> `电机编码器A, B相` (正交解码测速)
+*   **系统通信:**
+    *   `STM32 PA9, PA10 (USART1)` -> `USB转TTL模块` -> `PC`
 
-The software is designed with a layered and modular approach for better maintainability and scalability.
+## 3. 软件架构
 
-- **`main.c`**: Application layer, responsible for high-level logic and task scheduling (event-driven via timer interrupts).
-- **`controller.c`**: Control layer, implements the core cascaded PID control loop.
-- **`bsp.c`**: Board Support Package layer, responsible for initializing all hardware peripherals.
-- **`motor.c`**: Driver for motor control (PWM, direction) and speed/position feedback.
-- **`pid.c`**: A generic PID controller implementation.
-- **`vofa.c`**: Communication protocol for sending data to the VOFA+ GUI.
+为了提高代码的可读性、可维护性和可移植性，本项目采用了清晰的分层设计思想。
 
-## 4. Core Technical Details
+- **`main.c` (应用层):** 负责程序的入口，高层逻辑的调度。在重构后，主循环被解放，仅用于下达高级指令。
+- **`controller.c` (控制层):** **系统大脑**。封装了完整的串级PID控制逻辑，由定时器中断以固定频率调用。
+- **`bsp.c` (板级支持包):** 负责初始化所有与硬件相关的外设（GPIO, TIM, UART等）。
+- **`motor.c` (驱动层):** 封装了对电机的底层操作（设置PWM和方向）和状态反馈（计算速度、累计脉冲数）。
+- **`pid.c` (算法层):** 一个通用的PID控制器实现，带积分抗饱和和输出限幅功能。
+- **`vofa.c` (通信层):** 实现了与VOFA+上位机通信的`FireWater`协议，用于数据发送。
 
-### 4.1. Cascaded PID Control
+## 4. 核心技术详解
 
-The system employs a cascaded PID structure:
-- **Outer Loop (Position Control):** A PD controller calculates a target velocity based on the position error.
-- **Inner Loop (Velocity Control):** A high-performance PI controller with a low-pass filter on the derivative term tracks the target velocity and outputs the final PWM value.
+#### 4.1. 串级PID控制
 
-### 4.2. PID Tuning Process
+本系统控制核心为**位置-速度双闭环**结构：
 
-The PID parameters were meticulously tuned using the Ziegler-Nichols method and manual adjustments, with real-time feedback from VOFA+. 
+*   **内环 (速度环):** 采用**PI控制器**，负责快速、精确地跟踪外环给出的速度指令，并有效抑制负载扰动。
+*   **外环 (位置环):** 采用**PD控制器**，根据位置误差计算出期望的速度指令，交给内环执行。D项的引入有效抑制了系统因惯性导致的过冲问题。
 
-*(Here you can insert your best VOFA+ waveform screenshots!)*
+#### 4.2. PID参数整定过程
 
-**Final Parameters:**
-- **Velocity Loop:** Kp=8.5, Ki=0.75, Kd=0.01
-- **Position Loop:** Kp=0.5, Ki=0.0, Kd=0.1
+所有PID参数均通过实验法，借助VOFA+上位机进行在线整定。
 
-### 4.3. Real-time Control via Interrupts
+**速度环整定:**
+首先采用“先P后I再D”的策略。下图展示了最终调校完成的速度环响应曲线，系统响应快速且稳定。
 
-The entire control loop is executed within a `TIM4` interrupt service routine with a precise period of **10ms**, ensuring stable and real-time performance, freeing up the main loop for other tasks.
 
-## 5. How to Build & Run
 
-1.  Clone the repository.
-2.  Open the project in Keil MDK v5.
-3.  Compile and download to the STM32 board.
-4.  Connect to the serial port using VOFA+ (115200 baud rate) to visualize the data.
+**位置环整定:**
+在速度环的基础上，整定位置环参数。下图展示了位置环在阶跃指令下的响应，系统实现了无超调的精确定位。
 
-## 6. Problems & Solutions
 
-- **Problem:** PWM changes did not affect motor speed.
-  - **Reason:** The `STBY` pin of the TB6612 driver was not pulled high.
-  - **Solution:** Connect the `STBY` pin to 3.3V.
 
-- **Problem:** High-frequency oscillations in the velocity feedback when Kd was introduced.
-  - **Reason:** The derivative term amplified sensor noise.
-  - **Solution:** Implemented a first-order low-pass filter on the velocity measurement.
 
-## 7. Future Work
+**最终采用的参数:**
+- **速度环:** Kp = 8.5, Ki = 0.75, Kd = 0.01
+- **位置环:** Kp = 0.5, Ki = 0.0, Kd = 0.1
 
-- [ ] Implement an S-Curve trajectory planning module for smoother motion.
-- [ ] Add a feedforward controller to the velocity loop to improve tracking performance.
-- [ ] Explore advanced control algorithms such as ADRC.
+#### 4.3. 实时控制架构
+
+为了保证控制周期的绝对稳定，整个核心控制闭环（测速、PID计算、PWM输出）被放置在 `TIM4` 的**定时器中断**中执行，中断周期为**10ms**。这种事件驱动的架构，确保了系统的高实时性，并将主循环解放出来，可以用于处理其他非实时任务。
+
+## 5. 如何编译与运行
+
+1.  克隆本仓库到本地。
+2.  使用 Keil MDK v5 打开 `MDK-ARM` 目录下的 `.uvprojx` 工程文件。
+3.  点击“Rebuild all target files”进行完全编译。
+4.  通过ST-Link下载程序到STM32开发板。
+5.  连接USB转TTL模块，并使用VOFA+打开对应串口（波特率115200），即可观察电机控制波形。
+
+## 6. 开发过程中的问题与解决
+
+*   **问题1：** 电机转速不随PWM改变。
+    *   **原因：** `TB6612` 驱动模块的 `STBY` 待机引脚悬空，导致芯片未被使能。
+    *   **解决方案：** 将 `STBY` 引脚连接到3.3V高电平。
+
+*   **问题2：** 单步调试时，测得的速度值为异常“垃圾值”。
+    *   **原因：** 调试时程序暂停，导致M法测速的时间基准`Δt`错乱，但后台硬件定时器仍在对因惯性转动的编码器计数。
+    *   **解决方案：** 放弃断点调试，改用**串口打印**或**实时观察变量**的方式来调试与时间相关的代码。
+
+*   **问题3：** 位置环在纯P控制下出现定位过冲。
+    *   **原因：** 系统存在物理惯性，控制器“刹车”不及时。
+    *   **解决方案：** 在位置环中引入**微分项(D)**，利用其“预测性”提供阻尼，提前减速，从而消除过冲。
+
+## 7. 未来工作
+
+- [ ] 实现 **S型速度曲线规划**，让机器人启停更平滑。
+- [ ] 在速度环中加入**速度前馈**和**摩擦力前馈**，进一步提升动态响应性能。
+- [ ] 探索并实现**自抗扰控制(ADRC)**，与当前PID控制器进行抗干扰性能对比。
+- [ ] 将此伺服驱动模块作为底层，搭建一个**基于ROS的移动机器人**平台。
